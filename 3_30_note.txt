@@ -1,0 +1,65 @@
+3.30号最新note:
+
+先创一个raw ehr data:
+基于gp_icd10_hesin_raw_data.csv原有的column的基础上，匹配每个在gp_icd10_hesin_raw_data.csv里eid,并把从population_fieldID_completed_essential_new.csv里的除了eid的别的column拼到gp_icd10_hesin_raw_data.csv的column上（有点像merge？）
+最后check下这个新的csv(with ukb features)的unique eid的数量是否与population_fieldID_completed_essential_new.csv一致
+用Jupyter notebook完成上面这个任务，放在NEW这个folder(因为数据太大，我放了sample data给你)：
+
+----------------------------------------
+我的目标是最后做一个 Single label predction的model,现在我们先来create dataset：
+1.每个病人只取第一次得7种病的一种, 每个病建一个model，这七个病定义在fibrotic_codes.jpg里的disease column中:
+raw EHR data(gp_icd10_hesin_raw_data_with_ukb.csv)
+2. 首先我们先在fibrotic_gpX_hesinY_Y_visit.csv里取到每个病人的最早的一次visit（这个visit）
+e.g
+eid,event_dt,CKD,Cardiac_Fibrosis,MASH,Pulmonary_fibrosis,SSc_Connective_Tissue,Crohns_Disease,Fibrosis_of_Skin
+1000527,2002-12-23,0,0,0,1,0,0,0 -> Pulmonary_fibrosis  100527这个病人只有2002-12-23一次visit，且对应的唯一有1的是Pulmonary_fibrosis，则他就属于Pulmonary_fibrosis的潜在的dataset的一个instance
+1000971,2007-08-18,1,0,0,0,0,0,0 -> CKD 1000971这个病人两次visit，但2007-08-18是最早的，然后唯一有1的是CKD，则他就属于CKD的dataset里的潜在的dataset的一个instance
+1000971,2010-10-19,0,0,0,1,0,0,0
+
+3. 在提取了每个病人归属于哪个具体的disease后，依次根据每个disease的来create真正的dataset:
+具体流程是：e.g 以100527这个病人举例，按之前我们取到的信息（他在2002-12-23这次visit中，有且只有对应的唯一有1的是Pulmonary_fibrosis），看这个2002-12-23的visit是不是所有这个病人在raw EHR data里的第一次visit
+比如raw ehr data里，100527有很多visit：2002-12-23，2002-12-24， 2002-12-25， 因为2002-12-23这次是他第一次visit，恰好呢他一次得的也就是fibrotic_codes里的Pulmonary_fibrosis，那他这个instance就不要（Pulmonary_fibrosis的dataset里就没有100527这个病人了），因为我们没这个visit之前的records
+但如果100527有很多visit是2002-9-23，2002-10-24， 2002-12-23，只要他得Pulmonary_fibrosis的visit不是他所有visit里的第一次，那他得Pulmonary_fibrosis的visit（2002-12-23）就作为他的y label,而他之前的所有visit（2002-9-23，2002-10-24）就作为X
+
+4.
+在raw EHR data(gp_icd10_hesin_raw_data_with_ukb.csv)里，我们有这些columns
+* `eid` 是病人 ID
+* `event_dt` 是事件/诊断日期
+* `A010`, `A045`, `A047` 这类列是 ICD code 指示变量（0/1），0表示没有，1表示有
+* `f.xxx` 是 UK Biobank static feature
+* `f.xxx` 对同一个 `eid` 不随时间变化
+
+在取他的Y时，只要他得Pulmonary_fibrosis的这个visit（2002-12-23）作为他的Y,
+这样我们就取到了Pulmonary_fibrosis这个dataset里y label = 1的所有病人的records（Case）
+之后每个病人以及每个fibrotic_codes的每个disease以此类推
+
+怎么在Pulmonary_fibrosis的dataset里取 y label = 0的records:
+以下面这个为例,在经过step 2和 step 3的筛选后，1000527诊断为患有Pulmonary_fibrosis，1000971诊断为患有CKD，那1000971的所有visit（在gp_icd10_hesin_raw_data_with_ukb.csv）都可以作为records(Control)来用
+1000527,2002-12-23,0,0,0,1,0,0,0 -> Pulmonary_fibrosis
+1000971,2007-08-18,1,0,0,0,0,0,0 -> CKD 
+
+怎么取X：
+依旧以100527这个病人举例：
+在取他的X时（step3提到的），需要把fibrotic_codes.jpg里的所有icd code从columns里移除，剩下的不是fibrotic_codes里的icd code和UK Biobank static feature则全部保留
+e.g
+eid,event_dt,A010,A045,A047, N181, N182, I040,I420 f.6142.0.0,f.4653.0.0,f.4642.0.0,f.1379.0.0,f.2020.0.0,
+1000971,1990-11-08,0,0,0,,1,2,0.0,2
+1000971,1990-11-08,0,0,0,1,2,0.0,2,4.0
+1000971,1990-11-08,0,0,0,,1,2,0.0,2,
+在这些column里，N181, N182, I040,I420都属于fibrotic_codes.jpg里7种病的icd,都需要移除（注意fibrotic_codes.jpg里icd格式略有不同，需要你转换 例如I40.0 -> I040, I40.9 -> I409 ）
+
+
+
+
+
+
+用HAN跑以下7个病：
+eid,event_dt,CKD
+1000527,2002-12-23,0
+1000528,2002-12-23,0
+
+eid,event_dt,MASH 
+1000527,2002-12-23,1
+
+....
+用SAGE跑以下7个病：CKD,MASH .....
